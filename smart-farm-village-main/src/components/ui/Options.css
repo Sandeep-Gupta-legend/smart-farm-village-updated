@@ -1,0 +1,92 @@
+.options-container {
+  display: flex;
+  justify-content: space-around;
+  flex-wrap: wrap;
+  margin: 20px;
+  gap: 32px;
+  animation: fadeIn 1s ease;
+}
+
+
+.option-card {
+  width: 200px;
+  height: 170px;
+  background: linear-gradient(135deg, rgba(224,255,224,0.7) 0%, rgba(224,247,250,0.7) 100%);
+  border-radius: 22px;
+  text-align: center;
+  font-weight: bold;
+  margin: 12px;
+  cursor: pointer;
+  box-shadow: 0 8px 32px rgba(76,175,80,0.12), 0 2px 8px rgba(0,0,0,0.08);
+  transition: transform 0.35s cubic-bezier(.68,-0.55,.27,1.55), box-shadow 0.35s, background 0.35s, border 0.35s;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  border: 2.5px solid #81c784;
+  animation: popIn 0.7s cubic-bezier(.68,-0.55,.27,1.55);
+  backdrop-filter: blur(8px) saturate(1.2);
+  box-shadow: 0 8px 32px rgba(76,175,80,0.12), 0 2px 8px rgba(0,0,0,0.08);
+}
+
+.option-card:hover {
+  background: linear-gradient(135deg, rgba(200,230,201,0.85) 0%, rgba(178,235,242,0.85) 100%);
+  transform: scale(1.09) rotate(-2deg);
+  box-shadow: 0 16px 40px rgba(76,175,80,0.18), 0 4px 16px rgba(0,0,0,0.12);
+  border-color: #00e676;
+  outline: 0.5px solid #00e676;
+}
+
+.option-icon {
+  margin-bottom: 14px;
+  display: block;
+  animation: bounceIn 0.8s;
+  filter: drop-shadow(0 2px 6px rgba(76,175,80,0.18));
+}
+
+.option-title {
+  font-size: 1.35rem;
+  color: #388e3c;
+  font-weight: 700;
+  letter-spacing: 1px;
+  animation: fadeIn 1.2s;
+  text-shadow: 0 1px 2px rgba(76,175,80,0.08);
+}
+
+.option-card:hover {
+  background: linear-gradient(135deg, #c8e6c9 0%, #b2ebf2 100%);
+  transform: scale(1.08) rotate(-2deg);
+  box-shadow: 0 12px 32px rgba(76,175,80,0.15);
+}
+
+.option-icon {
+  margin-bottom: 12px;
+  display: block;
+  animation: bounceIn 0.8s;
+}
+
+.option-title {
+  font-size: 1.3rem;
+  color: #388e3c;
+  font-weight: 700;
+  letter-spacing: 1px;
+  animation: fadeIn 1.2s;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes popIn {
+  0% { transform: scale(0.7); opacity: 0; }
+  80% { transform: scale(1.1); opacity: 1; }
+  100% { transform: scale(1); }
+}
+
+@keyframes bounceIn {
+  0% { transform: scale(0.5); }
+  60% { transform: scale(1.2); }
+  100% { transform: scale(1); }
+}
