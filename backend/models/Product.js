@@ -14,7 +14,8 @@ const productSchema = new mongoose.Schema(
     },
     image_url: {
       type: String,
-      default: null
+      required: true,
+      trim: true
     },
     description: {
       type: String,
@@ -39,6 +40,19 @@ const productSchema = new mongoose.Schema(
     is_active: {
       type: Boolean,
       default: true
+    },
+    is_verified: {
+      type: Boolean,
+      default: false
+    },
+    verification_status: {
+      type: String,
+      enum: ['pending', 'verified', 'rejected'],
+      default: 'pending'
+    },
+    rejection_reason: {
+      type: String,
+      default: null
     }
   },
   {

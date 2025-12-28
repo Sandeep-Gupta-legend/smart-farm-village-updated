@@ -21,6 +21,8 @@ export interface Product {
   category: string;
   sellerId: string;
   quantity: number;
+  sellerName?: string;
+  sellerState?: string;
 }
 
 export interface CartItem {

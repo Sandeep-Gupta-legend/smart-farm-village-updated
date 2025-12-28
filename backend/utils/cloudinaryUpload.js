@@ -2,6 +2,7 @@
 const cloudinary = require('cloudinary').v2;
 const multer = require('multer');
 const { CloudinaryStorage } = require('multer-storage-cloudinary');
+const { Readable } = require('stream');
 
 // Configure Cloudinary
 cloudinary.config({
@@ -31,14 +32,47 @@ const fileFilter = (req, file, cb) => {
   }
 };
 
-// Create multer middleware
-const uploadToCloudinary = multer({
+// Create multer middleware for form uploads
+const multerUploadMiddleware = multer({
   storage: storage,
   fileFilter: fileFilter,
   limits: {
     fileSize: 10 * 1024 * 1024, // 10MB limit
   },
 });
+
+// Function to upload file buffer to Cloudinary
+const uploadToCloudinary = async (file, folder = 'smart-farm-village/products') => {
+  try {
+    return new Promise((resolve, reject) => {
+      const uploadStream = cloudinary.uploader.upload_stream(
+        {
+          folder: folder,
+          resource_type: 'auto',
+        },
+        (error, result) => {
+          if (error) reject(error);
+          else resolve(result);
+        }
+      );
+
+      // Handle both multer file objects and file objects with buffer
+      if (file.buffer) {
+        uploadStream.end(file.buffer);
+      } else if (file.path) {
+        // If file has a path, read and stream it
+        const fs = require('fs');
+        fs.createReadStream(file.path).pipe(uploadStream);
+      } else if (Buffer.isBuffer(file)) {
+        uploadStream.end(file);
+      } else {
+        reject(new Error('Invalid file object'));
+      }
+    });
+  } catch (error) {
+    throw new Error(`Cloudinary upload failed: ${error.message}`);
+  }
+};
 
 // Direct upload function for image URLs
 const uploadImageUrl = async (imageUrl, folder = 'smart-farm-village/products') => {
@@ -93,4 +127,5 @@ module.exports = {
   deleteImage,
   getOptimizedImageUrl,
   cloudinary,
+  multerUploadMiddleware,
 };

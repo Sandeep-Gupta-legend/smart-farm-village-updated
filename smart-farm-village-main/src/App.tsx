@@ -33,6 +33,10 @@ import SellerMarketplace from "./pages/SellerMarketplace";
 import Login from "./pages/Login";
 import NotFound from "./pages/NotFound";
 import AdminPanel from "./pages/AdminPanel";
+import About from "./pages/About";
+import BuyerProfile from "./pages/BuyerProfile";
+import SellerProfile from "./pages/SellerProfile";
+import IndianCropMap from "./pages/IndianCropMap";
 import ServerStatus from "./components/ServerStatus";
 
 const queryClient = new QueryClient();
@@ -44,10 +48,11 @@ const App = () => (
         <TooltipProvider>
           <Toaster />
           <Sonner />
-          <BrowserRouter>
+          <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
             <Routes>
               <Route path="/" element={<Index />} />
               <Route path="/learning" element={<LearningHub />} />
+              <Route path="/crop-map" element={<IndianCropMap />} />
               <Route path="/scheme-support" element={<SchemeSupport />} />
               <Route path="/expert-advice" element={<ExpertAdvice />} />
               <Route path="/documentation-learning" element={<DocumentationLearning />} />
@@ -72,6 +77,9 @@ const App = () => (
               <Route path="/seller-register" element={<SellerRegistration />} />
               <Route path="/buyer-marketplace" element={<BuyerMarketplace />} />
               <Route path="/seller-marketplace" element={<SellerMarketplace />} />
+              <Route path="/about" element={<About />} />
+              <Route path="/buyer-profile" element={<BuyerProfile />} />
+              <Route path="/seller-profile" element={<SellerProfile />} />
               <Route path="/admin" element={<AdminPanel />} />
               <Route path="/login/:type" element={<Login />} />
               <Route path="*" element={<NotFound />} />

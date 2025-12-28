@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppContext } from '@/contexts/AppContext';
 import { getTranslation } from '@/utils/translations';
@@ -6,52 +6,20 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Product, CartItem } from '@/types';
-import { ShoppingCart, User, Home, Info, Phone, ArrowLeft, Globe, Plus, Minus } from 'lucide-react';
+import { ShoppingCart, Plus, Minus, ArrowLeft } from 'lucide-react';
 import SearchBar from '@/components/SearchBar';
-import { useSearch, mockSearchProducts } from '@/hooks/useSearch';
-
-// Mock products data
-const mockProducts: Product[] = [
-  {
-    id: '1',
-    name: 'Premium Wheat',
-    price: 2500,
-    image: 'https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?w=300',
-    description: 'High quality wheat from Punjab farms',
-    category: 'Grains',
-    sellerId: 'seller1',
-    quantity: 100
-  },
-  {
-    id: '2',
-    name: 'Organic Rice',
-    price: 3000,
-    image: 'https://images.unsplash.com/photo-1586201375761-83865001e26c?w=300',
-    description: 'Chemical-free organic rice',
-    category: 'Grains',
-    sellerId: 'seller2',
-    quantity: 50
-  },
-  {
-    id: '3',
-    name: 'Fresh Cotton',
-    price: 5000,
-    image: 'https://images.unsplash.com/photo-1598662957563-ee4965d4d72c?w=300',
-    description: 'Premium cotton for textile industry',
-    category: 'Cash Crops',
-    sellerId: 'seller3',
-    quantity: 25
-  }
-];
+import { loadStripe } from '@stripe/stripe-js';
 
 const BuyerMarketplace = () => {
   const navigate = useNavigate();
   const { state, dispatch } = useAppContext();
   const [activeTab, setActiveTab] = useState('home');
   const [showCart, setShowCart] = useState(false);
-  
-  // Use the search hook
-  const { searchQuery, handleSearch, searchResults, isSearching } = useSearch(mockSearchProducts);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [orders, setOrders] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
   const [showPayment, setShowPayment] = useState(false);
   const [paymentData, setPaymentData] = useState({
     address: '',
@@ -59,6 +27,95 @@ const BuyerMarketplace = () => {
     location: ''
   });
 
+  useEffect(() => {
+    const fetchProducts = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await fetch('/api/products');
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.message || data.error || 'Failed to load products');
+        }
+        const normalized = (data.products || []).map((p: any) => ({
+          id: p.id,
+          name: p.name,
+          price: p.price,
+          image: p.image_url,
+          description: p.description,
+          category: p.category,
+          sellerId: p.seller_id,
+          sellerName: p.seller_name,
+          sellerState: p.seller_state,
+          quantity: p.quantity,
+        } as Product));
+        setProducts(normalized);
+      } catch (err: any) {
+        console.error('Fetch products failed:', err);
+        setError(err.message || 'Failed to load products');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchProducts();
+    fetchOrders();
+
+    // Stripe checkout return handling
+    const params = new URLSearchParams(window.location.search);
+    const sessionId = params.get('session_id');
+    if (sessionId) {
+      handleStripeReturn();
+      params.delete('session_id');
+      const newUrl = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ''}`;
+      window.history.replaceState({}, '', newUrl);
+    }
+  }, []);
+
+  const handleStripeReturn = async () => {
+    const pending = localStorage.getItem('pendingStripeOrder');
+    if (!pending) return;
+    try {
+      const parsed = JSON.parse(pending);
+      await placeOrder('Card (Stripe)', parsed);
+      localStorage.removeItem('pendingStripeOrder');
+    } catch (err) {
+      console.error('Failed to finalize Stripe order:', err);
+    }
+  };
+
+  const fetchOrders = async () => {
+    const token = localStorage.getItem('authToken');
+    if (!token) {
+      console.log('No auth token found');
+      return;
+    }
+    
+    // Decode token to get user ID
+    try {
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      const userId = payload.id;
+      
+      console.log('Fetching orders for user:', userId);
+      
+      const res = await fetch(`/api/orders/${userId}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      console.log('Orders response status:', res.status);
+      
+      if (res.ok) {
+        const data = await res.json();
+        console.log('Orders data:', data);
+        setOrders(Array.isArray(data) ? data : []);
+      } else {
+        const errorData = await res.json();
+        console.error('Failed to fetch orders:', errorData);
+      }
+    } catch (err) {
+      console.error('Failed to fetch orders:', err);
+    }
+  };
   const addToCart = (product: Product, quantity: number = 1) => {
     const cartItem: CartItem = { product, quantity };
     dispatch({ type: 'ADD_TO_CART', payload: cartItem });
@@ -72,20 +129,192 @@ const BuyerMarketplace = () => {
     return state.cart.reduce((total, item) => total + (item.product.price * item.quantity), 0);
   };
 
-  const handlePayment = () => {
-    const order = {
-      id: Date.now().toString(),
-      products: state.cart,
-      totalAmount: getTotalAmount(),
+  const placeOrder = async (paymentMethodLabel: string, payloadOverride?: any) => {
+    const token = localStorage.getItem('authToken');
+    if (!token) {
+      alert('Please login to place an order');
+      return;
+    }
+
+    const source = payloadOverride || {
+      cart: state.cart,
       address: paymentData.address,
-      paymentMethod: paymentData.paymentMethod,
-      status: 'confirmed',
-      createdAt: new Date()
+      location: paymentData.location,
+      total: getTotalAmount()
     };
-    dispatch({ type: 'ADD_ORDER', payload: order });
+
+    const orderData = {
+      products: source.cart,
+      total_amount: source.total,
+      address: source.address,
+      payment_method: paymentMethodLabel,
+      location: source.location
+    };
+
+    const res = await fetch('/api/orders', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify(orderData)
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.message || data.error || 'Failed to place order');
+    }
+
+    dispatch({ type: 'ADD_ORDER', payload: {
+      id: data.order._id,
+      products: orderData.products,
+      totalAmount: orderData.total_amount,
+      address: orderData.address,
+      paymentMethod: paymentMethodLabel,
+      status: data.order.status,
+      createdAt: new Date(data.order.createdAt)
+    }});
     dispatch({ type: 'CLEAR_CART' });
     setShowPayment(false);
     setShowCart(false);
+    await fetchOrders();
+  };
+
+  const loadRazorpayScript = () => {
+    return new Promise((resolve, reject) => {
+      if (document.querySelector('#razorpay-script')) return resolve(true);
+      const script = document.createElement('script');
+      script.id = 'razorpay-script';
+      script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+      script.onload = () => resolve(true);
+      script.onerror = () => reject(new Error('Failed to load Razorpay SDK'));
+      document.body.appendChild(script);
+    });
+  };
+
+  const startRazorpayPayment = async () => {
+    try {
+      const amount = getTotalAmount();
+      const token = localStorage.getItem('authToken');
+      if (!token) {
+        alert('Please login to place an order');
+        return;
+      }
+      await loadRazorpayScript();
+
+      const res = await fetch('/api/payments/razorpay/order', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ amount })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || data.error || 'Failed to initiate Razorpay');
+
+      const options: any = {
+        key: data.key,
+        amount: data.amount,
+        currency: data.currency,
+        name: 'Smart Farm Village',
+        description: 'Order payment',
+        order_id: data.orderId,
+        prefill: {
+          name: state.currentUser?.name,
+          email: state.currentUser?.email,
+          contact: state.currentUser?.mobile
+        },
+        handler: async (response: any) => {
+          try {
+            await placeOrder('UPI (Razorpay)');
+            alert('Payment successful');
+          } catch (e: any) {
+            alert(e.message || 'Payment succeeded but order save failed');
+          }
+        },
+        theme: { color: '#16a34a' }
+      };
+
+      const rzp = new (window as any).Razorpay(options);
+      rzp.open();
+    } catch (err: any) {
+      console.error('Razorpay payment failed:', err);
+      alert(err.message || 'Failed to start Razorpay payment');
+    }
+  };
+
+  const startStripeCheckout = async () => {
+    try {
+      const token = localStorage.getItem('authToken');
+      if (!token) {
+        alert('Please login to place an order');
+        return;
+      }
+
+      const payload = {
+        cart: state.cart,
+        address: paymentData.address,
+        location: paymentData.location,
+        total: getTotalAmount()
+      };
+
+      // Persist pending data for post-redirect order creation
+      localStorage.setItem('pendingStripeOrder', JSON.stringify(payload));
+
+      const res = await fetch('/api/payments/stripe/checkout-session', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ items: state.cart })
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || data.error || 'Failed to start Stripe checkout');
+
+      // Modern Stripe approach: redirect to session URL directly
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        throw new Error('No checkout URL returned from server');
+      }
+    } catch (err: any) {
+      console.error('Stripe checkout failed:', err);
+      alert(err.message || 'Failed to start Stripe checkout');
+    }
+  };
+
+  const handlePayment = async () => {
+    const method = paymentData.paymentMethod;
+    if (!method) {
+      alert('Please select a payment method');
+      return;
+    }
+    if (!paymentData.address.trim()) {
+      alert('Please enter delivery address');
+      return;
+    }
+
+    if (method.startsWith('UPI')) {
+      await startRazorpayPayment();
+      return;
+    }
+
+    if (method.startsWith('Card')) {
+      await startStripeCheckout();
+      return;
+    }
+
+    // Cash on Delivery fallback
+    try {
+      await placeOrder(method);
+      alert('Order placed successfully!');
+    } catch (err: any) {
+      console.error('Order placement failed:', err);
+      alert(err.message || 'Failed to place order. Please try again.');
+    }
   };
 
   const renderNavbar = () => (
@@ -101,7 +330,7 @@ const BuyerMarketplace = () => {
             Exit
           </Button>
           <div className="flex space-x-6">
-            {['home', 'about', 'contact', 'profile'].map((tab) => (
+            {['home', 'orders', 'about', 'contact', 'profile'].map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -111,7 +340,7 @@ const BuyerMarketplace = () => {
                     : 'text-white/80 hover:text-white hover:bg-white/10'
                 }`}
               >
-                {getTranslation(tab, state.language)}
+                {tab === 'orders' ? 'Orders' : getTranslation(tab, state.language)}
               </button>
             ))}
           </div>
@@ -140,8 +369,9 @@ const BuyerMarketplace = () => {
   const renderPaymentModal = () => (
     showPayment && (
       <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-        <div className="bg-white rounded-2xl p-8 max-w-md w-full animate-fade-scale">
-          <h3 className="text-2xl font-bold text-primary mb-6">Payment Details</h3>
+        <div className="bg-white rounded-2xl p-8 max-w-xl w-full animate-fade-scale shadow-2xl border border-gray-100">
+          <h3 className="text-2xl font-bold text-primary mb-3">Payment Details</h3>
+          <p className="text-sm text-muted-foreground mb-6">Secure checkout powered by Razorpay (UPI) and Stripe (Cards)</p>
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium mb-2">Delivery Address</label>
@@ -163,20 +393,28 @@ const BuyerMarketplace = () => {
             </div>
             <div>
               <label className="block text-sm font-medium mb-2">Payment Method</label>
-              <div className="grid grid-cols-1 gap-2">
-                {['UPI', 'Credit Card', 'Cash on Delivery'].map((method) => (
-                  <button
-                    key={method}
-                    onClick={() => setPaymentData({...paymentData, paymentMethod: method})}
-                    className={`p-3 rounded-lg border text-left transition-colors ${
-                      paymentData.paymentMethod === method 
-                        ? 'bg-primary text-white' 
-                        : 'bg-background hover:bg-secondary'
-                    }`}
-                  >
-                    {method}
-                  </button>
-                ))}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {[ 
+                  { label: 'UPI (Razorpay)', value: 'UPI (Razorpay)', note: 'Pay with any UPI app' },
+                  { label: 'Card (Stripe)', value: 'Card (Stripe)', note: 'Credit/Debit cards' },
+                  { label: 'Cash on Delivery', value: 'Cash on Delivery', note: 'Pay at delivery' }
+                ].map((method) => {
+                  const isSelected = paymentData.paymentMethod === method.value;
+                  return (
+                    <button
+                      key={method.value}
+                      onClick={() => setPaymentData({...paymentData, paymentMethod: method.value})}
+                      className={`p-3 rounded-lg border text-left transition duration-200 ${
+                        isSelected 
+                          ? 'bg-primary text-white shadow-lg scale-[1.01]' 
+                          : 'bg-white hover:bg-secondary'
+                      }`}
+                    >
+                      <div className="font-semibold">{method.label}</div>
+                      <div className={isSelected ? 'text-white/90 text-sm' : 'text-muted-foreground text-sm'}>{method.note}</div>
+                    </button>
+                  );
+                })}
               </div>
             </div>
             <div className="text-lg font-semibold">
@@ -248,87 +486,121 @@ const BuyerMarketplace = () => {
   );
 
   const renderProducts = () => {
-    // Use search results if available, otherwise use filtered mock products
-    const productsToShow = searchQuery ? searchResults : mockProducts;
-    
+    const filtered = products.filter(p =>
+      p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      p.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (p.description || '').toLowerCase().includes(searchQuery.toLowerCase())
+    );
+
     return (
       <div className="space-y-8">
         <SearchBar
           placeholder="Search crops, products, or categories..."
-          onSearch={handleSearch}
+          onSearch={(q) => setSearchQuery(q)}
           className="p-3"
         />
 
-        {isSearching && (
+        {loading && (
           <div className="text-center py-4">
             <div className="inline-flex items-center gap-2 text-gray-600">
               <div className="w-4 h-4 border-2 border-gray-300 border-t-blue-600 rounded-full animate-spin"></div>
-              Searching...
+              Loading products...
             </div>
           </div>
         )}
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {productsToShow.map((product) => (
-            <div key={product.id} className="farm-card group">
-              <img 
-                src={product.image} 
-                alt={product.name} 
-                className="w-full h-48 object-cover rounded-lg mb-4 group-hover:scale-105 transition-transform"
-              />
-              <div className="space-y-2">
-                <div className="flex justify-between items-start">
-                  <h3 className="text-xl font-semibold">{product.name}</h3>
-                  <Badge variant="secondary">{product.category}</Badge>
+        {error && (
+          <div style={{backgroundColor: '#f8d7da', color: '#721c24', padding: '0.75rem', borderRadius: '0.5rem', marginBottom: '1rem', border: '1px solid #f5c6cb'}}>
+            {error}
+          </div>
+        )}
+
+        {searchQuery && filtered.length === 0 && !loading && (
+          <div className="text-center py-8">
+            <p className="text-gray-500">No products found for "{searchQuery}"</p>
+          </div>
+        )}
+
+        {filtered.length === 0 && !searchQuery && !loading ? (
+          <div className="text-center py-12">
+            <p className="text-muted-foreground text-lg">No products listed yet</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {filtered.map((product) => (
+              <div key={product.id} className="farm-card group relative">
+                <img 
+                  src={product.image} 
+                  alt={product.name} 
+                  className="w-full h-48 object-cover rounded-lg mb-4 group-hover:scale-105 transition-transform"
+                />
+                <div className="absolute top-4 right-4 flex flex-col gap-2 items-end">
+                  <Badge className="bg-green-500 text-white flex items-center gap-1">
+                    <span>✓</span> Verified
+                  </Badge>
+                  {product.quantity <= 0 && (
+                    <Badge variant="destructive">Out of stock</Badge>
+                  )}
                 </div>
-                <p className="text-muted-foreground">{product.description}</p>
-                <div className="flex justify-between items-center">
-                  <span className="text-2xl font-bold text-primary">₹{product.price}/kg</span>
-                  <span className="text-sm text-muted-foreground">{product.quantity}kg available</span>
+                <div className="space-y-2">
+                  <div className="flex justify-between items-start">
+                    <h3 className="text-xl font-semibold">{product.name}</h3>
+                    <Badge variant="secondary">{product.category}</Badge>
+                  </div>
+                  <p className="text-muted-foreground">{product.description}</p>
+                  <div className="text-sm text-muted-foreground">Seller: {product.sellerName || 'Unknown'} ({product.sellerState || 'N/A'})</div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-2xl font-bold text-primary">₹{product.price} /kg</span>
+                    <span className="text-sm text-muted-foreground">{product.quantity}kg available</span>
+                  </div>
+                  <Button 
+                    onClick={() => addToCart(product)}
+                    className="w-full mt-4"
+                    disabled={product.quantity <= 0}
+                    variant={product.quantity <= 0 ? 'secondary' : 'default'}
+                  >
+                    {product.quantity <= 0 ? 'Out of Stock' : 'Add to Cart'}
+                  </Button>
                 </div>
-                <Button 
-                  onClick={() => addToCart(product)}
-                  className="w-full mt-4"
-                >
-                  Add to Cart
-                </Button>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
+        )}
       </div>
-    </div>
-  );
+    );
   };
 
   const renderOrderHistory = () => (
     <div className="space-y-4">
       <h3 className="text-2xl font-bold text-primary">Order History</h3>
-      {state.orders.length === 0 ? (
+      {orders.length === 0 ? (
         <p className="text-muted-foreground">No orders yet</p>
       ) : (
-        state.orders.map((order) => (
+        orders.map((order) => (
           <div key={order.id} className="farm-card">
             <div className="flex justify-between items-start mb-4">
               <div>
-                <h4 className="font-semibold">Order #{order.id}</h4>
+                <h4 className="font-semibold">Order #{order.id.slice(-8)}</h4>
                 <p className="text-sm text-muted-foreground">
-                  {order.createdAt.toLocaleDateString()}
+                  {new Date(order.created_at).toLocaleDateString()}
                 </p>
+                <p className="text-sm mt-1"><strong>Address:</strong> {order.address}</p>
+                <p className="text-sm"><strong>Payment:</strong> {order.payment_method}</p>
               </div>
-              <Badge>{order.status}</Badge>
+              <Badge className={order.status === 'delivered' ? 'bg-green-500' : order.status === 'shipped' ? 'bg-blue-500' : order.status === 'cancelled' ? 'bg-red-500' : 'bg-yellow-500'}>{order.status}</Badge>
             </div>
             <div className="space-y-2">
-              {order.products.map((item) => (
-                <div key={item.product.id} className="flex justify-between">
-                  <span>{item.product.name} x {item.quantity}</span>
-                  <span>₹{item.product.price * item.quantity}</span>
+              {order.items.map((item: any, idx: number) => (
+                <div key={idx} className="flex justify-between">
+                  <span>{item.product_name} x {item.quantity}</span>
+                  <span>₹{item.price * item.quantity}</span>
                 </div>
               ))}
             </div>
             <div className="border-t pt-2 mt-2">
               <div className="flex justify-between font-semibold">
                 <span>Total</span>
-                <span>₹{order.totalAmount}</span>
+                <span>₹{order.total_amount}</span>
               </div>
             </div>
           </div>
@@ -341,6 +613,8 @@ const BuyerMarketplace = () => {
     switch (activeTab) {
       case 'home':
         return renderProducts();
+      case 'orders':
+        return renderOrderHistory();
       case 'profile':
         return (
           <div className="max-w-2xl mx-auto space-y-8">
@@ -371,17 +645,15 @@ const BuyerMarketplace = () => {
                 </div>
               </div>
             </div>
-            {renderOrderHistory()}
           </div>
         );
       case 'about':
         return (
           <div className="max-w-4xl mx-auto">
             <div className="farm-card">
-              <h3 className="text-3xl font-bold text-primary mb-6">About Our Marketplace</h3>
+              <h3 className="text-3xl font-bold text-primary mb-6">Buyer Marketplace</h3>
               <p className="text-lg text-muted-foreground leading-relaxed">
-                Connect directly with verified farmers and get the best quality crops at fair prices.
-                Our platform ensures secure transactions and quality assurance.
+                Discover verified agricultural products directly from trusted sellers.
               </p>
             </div>
           </div>
@@ -390,11 +662,11 @@ const BuyerMarketplace = () => {
         return (
           <div className="max-w-2xl mx-auto">
             <div className="farm-card">
-              <h3 className="text-3xl font-bold text-primary mb-6">Contact Support</h3>
+              <h3 className="text-3xl font-bold text-primary mb-6">Support</h3>
               <div className="space-y-4">
-                <p><strong>Email:</strong> buyer@smartcropadvisory.com</p>
-                <p><strong>Phone:</strong> +91-9876543210</p>
-                <p><strong>Support Hours:</strong> 24/7</p>
+                <p><strong>Email:</strong> support@smartfarm.com</p>
+                <p><strong>Phone:</strong> +91-9876543211</p>
+                <p><strong>Support Hours:</strong> 9 AM - 6 PM</p>
               </div>
             </div>
           </div>

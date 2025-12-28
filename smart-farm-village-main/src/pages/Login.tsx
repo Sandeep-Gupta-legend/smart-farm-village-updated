@@ -16,28 +16,77 @@ const Login = () => {
     username: '',
     password: ''
   });
+  const [error, setError] = useState('');
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({
       ...formData,
       [e.target.name]: e.target.value
     });
+    setError('');
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // In a real app, you would validate credentials here
-    const user = {
-      ...formData,
-      name: formData.username,
-      id: Date.now().toString()
-    };
-    dispatch({ type: 'SET_USER', payload: user });
     
-    if (type === 'buyer') {
-      navigate('/buyer-marketplace');
-    } else if (type === 'seller') {
-      navigate('/seller-marketplace');
+    // Validation: Check if username and password are provided
+    if (!formData.username.trim()) {
+      setError('Username is required');
+      return;
+    }
+    
+    if (!formData.password.trim()) {
+      setError('Password is required');
+      return;
+    }
+    
+    if (formData.password.length < 3) {
+      setError('Password must be at least 3 characters');
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: formData.username,
+          password: formData.password,
+          userType: type
+        })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setError(data.message || data.error || 'Login failed. Please try again.');
+        return;
+      }
+
+      // Persist token for authenticated API calls
+      if (data.token) {
+        localStorage.setItem('authToken', data.token);
+      }
+
+      const user = {
+        id: data?.user?.id || data?.user?._id || Date.now().toString(),
+        name: data?.user?.name || formData.username,
+        username: data?.user?.username || formData.username,
+        userType: data?.user?.userType || type,
+        token: data?.token,
+      } as any;
+
+      dispatch({ type: 'SET_USER', payload: user });
+      setError('');
+
+      if (type === 'buyer') {
+        navigate('/buyer-marketplace');
+      } else if (type === 'seller') {
+        navigate('/seller-marketplace');
+      }
+    } catch (err) {
+      console.error('Login request failed:', err);
+      setError('Login failed. Please try again.');
     }
   };
 
@@ -68,6 +117,19 @@ const Login = () => {
           </h2>
           <p className="text-muted-foreground">Sign in to your account</p>
         </div>
+
+        {error && (
+          <div style={{
+            backgroundColor: '#f8d7da',
+            color: '#721c24',
+            padding: '0.75rem',
+            borderRadius: '0.5rem',
+            marginBottom: '1rem',
+            border: '1px solid #f5c6cb'
+          }}>
+            {error}
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
