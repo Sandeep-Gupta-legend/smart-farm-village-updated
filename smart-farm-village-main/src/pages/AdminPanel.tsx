@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from "react";
 import './AdminPanel.css';
 
+// Get API URL from environment variable or use default
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+
 const AdminPanel = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -214,7 +217,7 @@ const AdminPanel = () => {
     setError("");
 
     try {
-      const response = await fetch('/api/login', {
+      const response = await fetch(`${API_BASE_URL}/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: email, password, userType: 'admin' })

@@ -8,6 +8,9 @@ import { ArrowLeft } from 'lucide-react';
 import farmBackground from '@/assets/farm-background.jpg';
 import farmingLogo from '@/assets/farming-logo.png';
 
+// Get API URL from environment variable or use default
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+
 const Login = () => {
   const navigate = useNavigate();
   const { type } = useParams<{ type: string }>();
@@ -46,7 +49,7 @@ const Login = () => {
     }
 
     try {
-      const response = await fetch('/api/login', {
+      const response = await fetch(`${API_BASE_URL}/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
