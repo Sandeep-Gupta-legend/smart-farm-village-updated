@@ -31,7 +31,7 @@ const ServerStatus: React.FC<{ children: React.ReactNode }> = ({ children }) => 
       }
     };
     checkServer();
-    const interval = setInterval(checkServer, 10000); // check every 10s
+    const interval = setInterval(checkServer, 30000); // check every 30s
     return () => clearInterval(interval);
   }, []);
 

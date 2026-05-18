@@ -75,25 +75,7 @@ console.log('Stripe Client:', stripe ? '✓ Initialized' : '✗ Not initialized'
 app.use(helmet());
 app.use(compression());
 
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
-  message: 'Too many requests from this IP, please try again later.'
-});
-app.use('/api/', limiter);
-
-// Stricter limiter for authentication endpoints to slow down brute force
-const authLimiter = rateLimit({
-  windowMs: 1 * 60 * 1000, // 1 minute
-  max: 6, // limit each IP to 6 login attempts per minute
-  message: 'Too many login attempts from this IP, please try again later.'
-});
-
-// Logging
-app.use(morgan('combined'));
-
-// Middleware
+// CORS should run before limiters so even error responses include CORS headers
 app.use(cors({
   origin: function(origin, callback) {
     // Allow requests with no origin (mobile apps, Postman, etc.)
@@ -121,6 +103,25 @@ app.use(cors({
   credentials: true,
   maxAge: 86400 // Cache preflight for 24 hours
 }));
+
+// Rate limiting
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // limit each IP to 100 requests per windowMs
+  skip: (req) => req.path === '/api/health',
+  message: 'Too many requests from this IP, please try again later.'
+});
+app.use('/api/', limiter);
+
+// Stricter limiter for authentication endpoints to slow down brute force
+const authLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000, // 1 minute
+  max: 6, // limit each IP to 6 login attempts per minute
+  message: 'Too many login attempts from this IP, please try again later.'
+});
+
+// Logging
+app.use(morgan('combined'));
 app.use(bodyParser.json({ limit: '10mb' }));
 app.use(bodyParser.urlencoded({ extended: true, limit: '10mb' }));
 app.use(express.json());
