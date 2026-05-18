@@ -1,5 +1,8 @@
 import { useState, useCallback, useEffect } from 'react';
 
+// Get API URL from environment variable or use default
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+
 interface SearchOptions {
   debounceMs?: number;
   minQueryLength?: number;
@@ -89,7 +92,7 @@ export const useSearch = (
 // API search functions
 export const searchProducts = async (query: string): Promise<any[]> => {
   try {
-    const response = await fetch(`http://localhost:5000/api/products?search=${encodeURIComponent(query)}`);
+    const response = await fetch(`${API_BASE_URL}/products?search=${encodeURIComponent(query)}`);
     if (!response.ok) {
       throw new Error('Failed to fetch products');
     }
@@ -103,7 +106,7 @@ export const searchProducts = async (query: string): Promise<any[]> => {
 
 export const searchCategories = async (query: string): Promise<any[]> => {
   try {
-    const response = await fetch(`http://localhost:5000/api/categories`);
+    const response = await fetch(`${API_BASE_URL}/categories`);
     if (!response.ok) {
       throw new Error('Failed to fetch categories');
     }

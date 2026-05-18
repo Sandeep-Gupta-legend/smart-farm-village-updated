@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from "react";
 
-const SERVER_URL = "http://localhost:5000/api/health";
+const SERVER_URL = import.meta.env.VITE_API_URL 
+  ? `${import.meta.env.VITE_API_URL}/health`
+  : "http://localhost:5000/api/health";
 
 const ServerStatus: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [serverUp, setServerUp] = useState(true);
